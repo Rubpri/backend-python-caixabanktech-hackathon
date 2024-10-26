@@ -1,11 +1,10 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Blueprint
 from flask_migrate import Migrate
 from models import db, User, Account, RevokedToken
 from config import Config
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_required, get_jwt_identity
 from werkzeug.security import check_password_hash
-
 import uuid
 
 app = Flask(__name__)
@@ -16,6 +15,8 @@ migrate = Migrate(app, db)
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 
+api = Blueprint('api', __name__)
+
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
     token = jwt_payload['jti']
@@ -25,7 +26,7 @@ def check_if_token_revoked(jwt_header, jwt_payload):
 def hello():
     return "Hello, World!"
 
-@app.route('/register', methods=['POST'])
+@api.route('users/register', methods=['POST'])
 def register_user():
     data = request.get_json()
 
@@ -76,7 +77,7 @@ def register_user():
     }), 201
 
 
-@app.route('/login', methods=['POST'])
+@api.route('users/login', methods=['POST'])
 def login():
     data = request.get_json()
     identifier = data.get("identifier")
@@ -96,7 +97,7 @@ def login():
     return jsonify({"token": access_token})
 
 
-@app.route('/user', methods=['GET'])
+@api.route('dashboard/user', methods=['GET'])
 @jwt_required()
 def get_user_info():
     account_number = get_jwt_identity()
@@ -116,7 +117,7 @@ def get_user_info():
     }), 200
 
 
-@app.route('/account', methods=['GET'])
+@api.route('dashboard/account', methods=['GET'])
 @jwt_required()
 def get_account_info():
     current_user = get_jwt_identity()
@@ -131,7 +132,7 @@ def get_account_info():
     }), 200
 
 
-@app.route('/logout', methods=['POST'])
+@api.route('users/logout', methods=['POST'])
 @jwt_required()
 def logout():
     jti = get_jwt()['jti']  
@@ -139,6 +140,10 @@ def logout():
     db.session.add(revoked_token)
     db.session.commit()
     return jsonify(msg="Successfully logged out"), 200
+
+
+app.register_blueprint(api, url_prefix='/api')
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=3000)
