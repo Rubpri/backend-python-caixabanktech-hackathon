@@ -8,5 +8,3 @@ bcrypt
 PyMySQL
 Flask-Mail
 cryptography
-fastapi
-uvicorn
