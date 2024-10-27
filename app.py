@@ -435,8 +435,33 @@ def transfer_funds():
     return jsonify({"msg": "Funds transferred successfully"}), 200
 
 
+@api.route('/account/transactions', methods=['GET'])
+@jwt_required()
+def get_transaction_history():
+    current_user = get_jwt_identity() 
 
+    account = Account.query.filter_by(user_account_number=current_user).first()
+    
+    if not account:
+        return jsonify({"error": "Account not found"}), 404
 
+    transactions = Transaction.query.filter(
+        (Transaction.source_account_number == account.user_account_number) | 
+        (Transaction.target_account_number == account.user_account_number)
+    ).all()
+
+    transaction_history = []
+    for transaction in transactions:
+        transaction_history.append({
+            "id": transaction.id,
+            "amount": transaction.amount,
+            "transactionType": transaction.transaction_type,
+            "transactionDate": int(transaction.transaction_date.timestamp() * 1000),
+            "sourceAccountNumber": transaction.source_account_number,
+            "targetAccountNumber": transaction.target_account_number or "N/A"
+        })
+
+    return jsonify(transaction_history), 200
 
 
 
