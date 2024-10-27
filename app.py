@@ -49,6 +49,31 @@ def register_user():
     if not User.validate_phone(data['phoneNumber']):
         return jsonify({"error": "Invalid phone number."}), 400
 
+    email = data['email']
+    email_pattern = r"^[\w\.-]+@[a-zA-Z\d\.-]+\.[a-zA-Z]{2,}$"
+    if not re.match(email_pattern, email):
+        return jsonify({"error": f"Invalid email: {email}"}), 400
+
+    password = data['password']
+
+    if not any(char.isupper() for char in password):
+        return jsonify({"error": "Password must contain at least one uppercase letter."}), 400
+
+    if not (any(char.isdigit() for char in password) and re.search(r"[!@#$%^&*(),.?\":{}|<>]", password)):
+        return jsonify({"error": "Password must contain at least one digit and one special character."}), 400
+
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return jsonify({"error": "Password must contain at least one special character."}), 400
+
+    if any(char.isspace() for char in password):
+        return jsonify({"error": "Password cannot contain whitespace."}), 400
+
+    if len(password) >= 128:
+        return jsonify({"error": "Password must be less than 128 characters long."}), 400
+
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters long."}), 400
+
     existing_user = User.query.filter((User.email == data['email']) | (User.phone_number == data['phoneNumber'])).first()
     if existing_user:
         return jsonify({"error": "Email or phone number already exists."}), 400
