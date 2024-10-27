@@ -532,12 +532,189 @@ def buy_assets():
         db.session.rollback()
         return jsonify({"error": "An error occurred while processing the transaction"}), 500
 
+
+    send_investment_confirmation_email(user, asset_symbol, units_purchased, amount_invested, purchase_price, account.balance)
+
+    
+
     return jsonify({"msg": "Asset purchase successful."}), 200
 
+def send_investment_confirmation_email(user, asset_symbol, units_purchased, amount_invested, purchase_price, balance):
+    from_email = "CaixaBank@caixabank.com"  
+    to_email = user.email  
+    subject = "Investment Purchase Confirmation"
+
+    user_asset = UserAsset.query.filter_by(user_account_number=user.account_number, asset_symbol=asset_symbol).first()
+    
+    current_holdings = user_asset.quantity if user_asset else 0
+    
+    body = f"""
+    Dear {user.name},
+
+    You have successfully purchased {units_purchased:.2f} units of {asset_symbol} for a total amount of ${amount_invested:.2f}.
+
+    Current holdings of {asset_symbol}: {current_holdings:.2f} units
+
+    Summary of current assets:
+    - {asset_symbol}: {current_holdings:.2f} units purchased at ${purchase_price}
+
+    Account Balance: ${balance:.2f}
+    Net Worth: ${balance + (current_holdings * purchase_price):.2f}
+
+    Thank you for using our investment services.
+
+    Best Regards,
+    Investment Management Team
+    """
+
+    msg = MIMEMultipart()
+    msg['From'] = from_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    smtp_server = 'smtp'
+    smtp_port = 1025
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.send_message(msg)
 
 
+@api.route('/account/sell-asset', methods=['POST'])
+@jwt_required()
+def sell_assets():
+    current_user = get_jwt_identity()  
+    data = request.get_json()
+
+    asset_symbol = data.get("assetSymbol")
+    pin = data.get("pin")
+    quantity = data.get("quantity")
+
+    user = User.query.filter_by(account_number=current_user).first()
+    account = Account.query.filter_by(user_account_number=current_user).first()
+
+    if not account:
+        return jsonify({"error": "Account not found"}), 400
+
+    if not user or user.pin != pin:
+        return jsonify({"error": "Incorrect PIN"}), 400
+
+    if quantity <= 0:
+        return jsonify({"error": "Quantity must be greater than zero."}), 400
+
+    user_asset = UserAsset.query.filter_by(user_account_number=current_user, asset_symbol=asset_symbol).first()
+
+    if not user_asset:
+        return jsonify({"error": "Asset not found in your portfolio."}), 404
+
+    if user_asset.quantity < quantity:
+        return jsonify({"error": "Insufficient asset quantity to sell."}), 400
+
+    try:
+        price_response = requests.get('https://faas-lon1-917a94a7.doserverless.co/api/v1/web/fn-e0f31110-7521-4cb9-86a2-645f66eefb63/default/market-prices-simulator')
+        price_data = price_response.json()
+        sell_price = price_data.get(asset_symbol)
+
+        if sell_price is None:
+            return jsonify({"error": "Asset price not found."}), 400
+    
+    except requests.RequestException:
+        return jsonify({"error": "Internal error occurred while fetching asset price"}), 500
+        
+    total_sale_value = quantity * sell_price
+    
+    try:
+        account.balance += total_sale_value
+        
+        user_asset.quantity -= quantity
+        # user_asset.amount = total_sale_value
+        # user_asset.purchase_price = sell_price
+        db.session.add(user_asset)
+
+        transaction = Transaction(
+            amount=total_sale_value,
+            transaction_type="ASSET_SELL",
+            source_account_number=current_user,
+            target_account_number="N/A"
+        )
+        db.session.add(transaction)
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "An error occurred while processing the transaction"}), 500
+
+    gain_loss = total_sale_value - user_asset.amount
+
+    send_investment_sale_confirmation_email(user, asset_symbol, quantity, user_asset.quantity, gain_loss, user_asset.purchase_price, account.balance )
+        
+    return jsonify({"msg": "Asset sale successful."}), 200
+
+def send_investment_sale_confirmation_email(user, asset_symbol, units_sold, remaining_quantity, gain_loss, purchase_price, balance ):
+    from_email = "CaixaBank@caixabank.com"  
+    to_email = user.email  
+    subject = "Investment Sale Confirmation"
+    
+    body = f"""
+    Dear {user.name},
+
+    You have successfully sold {units_sold:.2f} units of {asset_symbol}.
+
+    Total Gain/Loss: ${gain_loss:.2f}
+
+    Remaining holdings of {asset_symbol}: {remaining_quantity:.2f} units
+
+    Summary of current assets:
+    - {asset_symbol}: {remaining_quantity:.2f} units purchased at ${purchase_price:.2f}
+
+    Account Balance: ${balance:.2f}
+    Net Worth: ${balance + (remaining_quantity * purchase_price):.2f}
+
+    Thank you for using our investment services.
+
+    Best Regards,
+    Investment Management Team
+    """
+
+    msg = MIMEMultipart()
+    msg['From'] = from_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    smtp_server = 'smtp'
+    smtp_port = 1025
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.send_message(msg)
 
 
+@app.route('/market/prices', methods=['GET'])
+def get_market_prices():
+    try:
+        response = requests.get('https://faas-lon1-917a94a7.doserverless.co/api/v1/web/fn-e0f31110-7521-4cb9-86a2-645f66eefb63/default/market-prices-simulator')
+        prices = response.json()
+
+        return jsonify(prices), 200
+
+    except Exception as e:
+        print(f"Error retrieving market prices: {str(e)}")
+        return jsonify({"error": "Could not retrieve market prices."}), 500
+    
+@app.route('/market/prices/<string:symbol>', methods=['GET'])
+def get_price_by_symbol(symbol):
+    try:
+        response = requests.get('https://faas-lon1-917a94a7.doserverless.co/api/v1/web/fn-e0f31110-7521-4cb9-86a2-645f66eefb63/default/market-prices-simulator')
+        prices = response.json()
+
+        if symbol in prices:
+            return jsonify({symbol: prices[symbol]}), 200
+        else:
+            return jsonify({"error": "Symbol not found."}), 404
+
+    except Exception as e:
+        print(f"Error retrieving price for symbol {symbol}: {str(e)}")
+        return jsonify({"error": "Could not retrieve market price for symbol."}), 500
 
 
 
