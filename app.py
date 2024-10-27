@@ -7,6 +7,7 @@ from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_req
 from werkzeug.security import check_password_hash
 import uuid
 from datetime import datetime, timezone
+import re
 
 import random
 import smtplib
@@ -231,6 +232,83 @@ def reset_password():
     db.session.commit()
 
     return jsonify({"message": "Password reset successfully"}), 200
+
+
+@api.route('/account/pin/create', methods=['POST'])
+@jwt_required() 
+def create_pin():
+    data = request.get_json()
+    pin = data.get("pin")
+    password = data.get("password")
+
+    if not re.match(r'^\d{4}$', pin):
+        return jsonify({"error": "PIN must be 4 digits."}), 400
+
+    current_user_id = get_jwt_identity()
+    
+    user = User.query.get(current_user_id)
+
+    if not user or not bcrypt.check_password_hash(user.password, password):
+        return jsonify({"error": "Incorrect password"}), 401
+
+    user.pin = pin
+    db.session.commit()
+
+    return jsonify({"msg": "PIN created successfully"}), 201
+
+
+@api.route('/account/pin/update', methods=['PUT'])
+@jwt_required() 
+def update_pin():
+    data = request.get_json()
+    current_user_id = get_jwt_identity()
+
+    if not all(key in data for key in ["oldPin", "password", "newPin"]):
+        return jsonify({"error": "Missing fields."}), 400
+    
+    user = User.query.get(current_user_id)
+
+    if user is None:
+        return jsonify({"error": "User not found."}), 404
+    
+    if not bcrypt.check_password_hash(user.password, data['password']):
+        return jsonify({"error": "Incorrect password."}), 401
+    
+    if user.pin != data['oldPin']:
+        return jsonify({"error": "Incorrect old PIN."}), 400
+    
+    if not re.match(r'^\d{4}$', data['newPin']):
+        return jsonify({"error": "PIN must be 4 digits."}), 400
+    
+    user.pin = data['newPin']
+
+    try:
+        db.session.commit() 
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"msg": "PIN updated successfully"}), 200
+   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 app.register_blueprint(api, url_prefix='/api')

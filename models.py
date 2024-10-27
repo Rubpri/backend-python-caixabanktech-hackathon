@@ -19,6 +19,7 @@ class User(db.Model):
     address = db.Column(db.String(255), nullable=False)
     password = db.Column(db.String(128), nullable=False)
     reset_token = Column(String(36), nullable=True)
+    pin = Column(String(4), nullable=True)
 
     account = relationship("Account", back_populates="user", uselist=False)
 
