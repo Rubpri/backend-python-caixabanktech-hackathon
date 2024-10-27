@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, Blueprint
 from flask_migrate import Migrate
-from models import OTP, db, User, Account, RevokedToken, Transaction
+import requests
+from models import OTP, db, User, Account, RevokedToken, Transaction, UserAsset
 from config import Config
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_required, get_jwt_identity
@@ -464,9 +465,74 @@ def get_transaction_history():
     return jsonify(transaction_history), 200
 
 
+@api.route('/account/buy-asset', methods=['POST'])
+@jwt_required()
+def buy_assets():
+    current_user = get_jwt_identity()  
+    data = request.get_json()  
+    
+    asset_symbol = data.get("assetSymbol")
+    pin = data.get("pin")
+    amount_invested = data.get("amount")
+    
+    user = User.query.filter_by(account_number=current_user).first()
+    
+    if not user or user.pin != pin:
+        return jsonify({"error": "Incorrect PIN"}), 400
+    
+    if amount_invested <= 0:
+        return jsonify({"error": "Amount must be greater than zero."}), 400
 
+    account = Account.query.filter_by(user_account_number=current_user).first()
+    
+    if account.balance < amount_invested:
+        return jsonify({"error": "Insufficient balance."}), 400
 
+    try:
+        price_response = requests.get('https://faas-lon1-917a94a7.doserverless.co/api/v1/web/fn-e0f31110-7521-4cb9-86a2-645f66eefb63/default/market-prices-simulator')
+        price_data = price_response.json()
+        purchase_price = price_data.get(asset_symbol)
+        
+        if purchase_price is None:
+            return jsonify({"error": "Asset symbol not found"}), 400
+    
+    except requests.RequestException:
+        return jsonify({"error": "Internal error occurred while fetching asset price"}), 500
 
+    units_purchased = amount_invested / purchase_price
+
+    try:
+        account.balance -= amount_invested
+
+        user_asset = UserAsset.query.filter_by(user_account_number=current_user, asset_symbol=asset_symbol).first()
+        if user_asset:
+            user_asset.quantity += units_purchased
+            user_asset.amount = amount_invested
+            user_asset.purchase_price = purchase_price
+        else:
+            user_asset = UserAsset(
+                user_account_number=current_user,
+                asset_symbol=asset_symbol,
+                quantity=units_purchased,
+                amount=amount_invested,
+                purchase_price=purchase_price
+            )
+            db.session.add(user_asset)
+
+            transaction = Transaction(
+            amount=amount_invested,
+            transaction_type="ASSET_PURCHASE",
+            source_account_number=current_user,
+            target_account_number="N/A"
+        )
+        db.session.add(transaction)
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": "An error occurred while processing the transaction"}), 500
+
+    return jsonify({"msg": "Asset purchase successful."}), 200
 
 
 

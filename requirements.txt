@@ -8,3 +8,4 @@ bcrypt
 PyMySQL
 Flask-Mail
 cryptography
+requests

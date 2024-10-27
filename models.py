@@ -42,6 +42,7 @@ class Account(db.Model):
     user_account_number = Column(String(36), ForeignKey('user.account_number'))
 
     user = relationship("User", back_populates="account")
+    assets = relationship("UserAsset", back_populates="account")
 
 
 class RevokedToken(db.Model):
@@ -76,4 +77,14 @@ class Transaction(db.Model):
     target_account_number = Column(String(36),nullable=True)
 
     source_account = relationship("Account", foreign_keys=[source_account_number])
-    # target_account = relationship("Account", foreign_keys=[target_account_number])
+    
+
+class UserAsset(db.Model):
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_account_number = Column(String(36), ForeignKey('account.user_account_number'), nullable=False)
+    asset_symbol = Column(String(10), nullable=False)
+    amount = Column(Float, nullable=False)
+    purchase_price = Column(Float, nullable=False)
+    quantity = Column(Float, default=0.0)
+
+    account = relationship("Account", back_populates="assets")
