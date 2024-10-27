@@ -1,11 +1,17 @@
 from flask import Flask, request, jsonify, Blueprint
 from flask_migrate import Migrate
-from models import db, User, Account, RevokedToken
+from models import OTP, db, User, Account, RevokedToken
 from config import Config
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_required, get_jwt_identity
 from werkzeug.security import check_password_hash
 import uuid
+from datetime import datetime, timezone
+
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 
@@ -140,6 +146,91 @@ def logout():
     db.session.add(revoked_token)
     db.session.commit()
     return jsonify(msg="Successfully logged out"), 200
+
+
+@api.route('/auth/password-reset/send-otp', methods=['POST'])
+def send_otp():
+    data = request.get_json()
+    identifier = data.get("identifier")
+
+    user = User.query.filter_by(email=identifier).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    otp = random.randint(100000, 999999)
+
+    otp_entry = OTP(identifier=identifier, otp=str(otp))
+    db.session.add(otp_entry)
+    db.session.commit()
+
+    send_email(identifier, otp)
+
+    return jsonify({"message": f"OTP sent successfully to: {identifier}"}), 200
+
+def send_email(to_email, otp):
+    from_email = "CaixaBank@caixabank.com" 
+    subject = "Your OTP Code"
+    body = f"OTP: {otp}"
+
+    msg = MIMEMultipart()
+    msg['From'] = from_email
+    msg['To'] = to_email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    smtp_server = 'smtp'
+    smtp_port = 1025
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.send_message(msg)
+
+
+@api.route('/auth/password-reset/verify-otp', methods=['POST'])
+def verify_otp():
+    data = request.get_json()
+    identifier = data.get("identifier")
+    otp = data.get("otp")
+
+    otp_entry = OTP.query.filter_by(identifier=identifier, otp=otp).first()
+    user = User.query.filter_by(email=identifier).first()
+
+    if not otp_entry:
+        return jsonify({"error": "Invalid or expired OTP."}), 400
+    
+    otp_entry.current_datetime = datetime.now(timezone.utc)
+    db.session.commit()
+
+    if not otp_entry.is_valid():
+        return jsonify({"error": "Invalid or expired OTP."}), 400
+
+    password_reset_token = str(uuid.uuid4())
+    user.reset_token = password_reset_token
+    db.session.commit()
+
+    return jsonify({"passwordResetToken": password_reset_token}), 200
+
+
+@api.route('/auth/password-reset', methods=['POST'])
+def reset_password():
+    data = request.get_json()
+    identifier = data.get("identifier")
+    reset_token = data.get("resetToken")
+    new_password = data.get("newPassword")
+
+    user = User.query.filter_by(email=identifier).first()
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if user.reset_token != reset_token:
+        return jsonify({"error": "Invalid reset token."}), 400
+
+    hashed_password = bcrypt.generate_password_hash(new_password).decode('utf-8')
+
+    user.password = hashed_password
+    user.reset_token = None  
+    db.session.commit()
+
+    return jsonify({"message": "Password reset successfully"}), 200
 
 
 app.register_blueprint(api, url_prefix='/api')

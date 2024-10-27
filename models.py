@@ -4,7 +4,8 @@ from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 import uuid
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
 
 
 db = SQLAlchemy()
@@ -17,6 +18,7 @@ class User(db.Model):
     phone_number = db.Column(db.String(15), nullable=False)
     address = db.Column(db.String(255), nullable=False)
     password = db.Column(db.String(128), nullable=False)
+    reset_token = Column(String(36), nullable=True)
 
     account = relationship("Account", back_populates="user", uselist=False)
 
@@ -47,3 +49,17 @@ class RevokedToken(db.Model):
     id = Column(Integer, primary_key=True)
     token = Column(String(500), unique=True, nullable=False)
     revoked_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+
+class OTP(db.Model):
+    id = Column(Integer, primary_key=True)
+    identifier = Column(String(255), nullable=False) 
+    otp = Column(String(6), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime, default=lambda: datetime.now(timezone.utc) + timedelta(minutes=5))
+    current_datetime = Column(DateTime, nullable=True)
+
+    def is_valid(self):
+        if self.current_datetime:
+            return self.current_datetime < self.expires_at
+        return False
