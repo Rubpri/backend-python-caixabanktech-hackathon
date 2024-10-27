@@ -53,6 +53,7 @@ class RevokedToken(db.Model):
 
 
 class OTP(db.Model):
+
     id = Column(Integer, primary_key=True)
     identifier = Column(String(255), nullable=False) 
     otp = Column(String(6), nullable=False)
@@ -64,3 +65,15 @@ class OTP(db.Model):
         if self.current_datetime:
             return self.current_datetime < self.expires_at
         return False
+
+
+class Transaction(db.Model):
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    amount = Column(Float, nullable=False)
+    transaction_type = Column(String(20), nullable=False)
+    transaction_date = Column(DateTime, default=datetime.now(timezone.utc))
+    source_account_number = Column(String(36), ForeignKey('account.user_account_number'), nullable=False)
+    target_account_number = Column(String(36),nullable=True)
+
+    source_account = relationship("Account", foreign_keys=[source_account_number])
+    # target_account = relationship("Account", foreign_keys=[target_account_number])

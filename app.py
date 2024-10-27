@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, Blueprint
 from flask_migrate import Migrate
-from models import OTP, db, User, Account, RevokedToken
+from models import OTP, db, User, Account, RevokedToken, Transaction
 from config import Config
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_required, get_jwt_identity
@@ -29,9 +29,11 @@ def check_if_token_revoked(jwt_header, jwt_payload):
     token = jwt_payload['jti']
     return RevokedToken.query.filter_by(token=token).first() is not None
 
+
 @app.route('/')
 def hello():
     return "Hello, World!"
+
 
 @api.route('users/register', methods=['POST'])
 def register_user():
@@ -291,8 +293,146 @@ def update_pin():
     return jsonify({"msg": "PIN updated successfully"}), 200
    
 
+@api.route('/account/deposit', methods=['POST'])
+@jwt_required()
+def deposit_money():
+    current_user = get_jwt_identity()
+    data = request.get_json()
+    
+    pin = data.get("pin")
+    amount_str = data.get("amount")
+
+    user = User.query.filter_by(account_number=current_user).first()
+    
+    if not user or user.pin != pin:
+        return jsonify({"error": "Incorrect PIN"}), 400
+
+    try:
+        amount = float(amount_str)
+    except ValueError:
+        return jsonify({"error": "Invalid amount format"}), 400
+
+    if amount <= 0:
+        return jsonify({"error": "Invalid amount"}), 400
+
+    account = Account.query.filter_by(user_account_number=current_user).first()
+    if not account:
+        return jsonify({"error": "Account not found"}), 404
+
+    account.balance += amount
+    db.session.commit()
+    
+    transaction = Transaction(
+        amount=amount,
+        transaction_type="CASH_DEPOSIT",
+        transaction_date=datetime.now(timezone.utc),
+        source_account_number=account.user_account_number,
+        target_account_number="N/A"
+    )
+    
+    db.session.add(transaction)
+    db.session.commit()
+
+    return jsonify({"msg": "Cash deposited successfully"}), 200
 
 
+@api.route('/account/withdraw', methods=['POST'])
+@jwt_required()
+def withdraw_money():
+    current_user = get_jwt_identity() 
+    data = request.get_json()
+    
+    pin = data.get("pin")
+    amount_str = data.get("amount") 
+
+    user = User.query.filter_by(account_number=current_user).first()
+    
+    if not user or user.pin != pin:
+        return jsonify({"error": "Incorrect PIN"}), 400
+
+    try:
+        amount = float(amount_str)
+    except ValueError:
+        return jsonify({"error": "Invalid amount format"}), 400
+
+    if amount <= 0:
+        return jsonify({"error": "Invalid amount"}), 400
+
+    account = Account.query.filter_by(user_account_number=current_user).first()
+    if not account:
+        return jsonify({"error": "Account not found"}), 404
+
+    if account.balance < amount:
+        return jsonify({"error": "Insufficient balance"}), 400
+
+    account.balance -= amount
+    db.session.commit()
+
+    transaction = Transaction(
+        amount=amount,
+        transaction_type="CASH_WITHDRAWAL",
+        transaction_date=datetime.now(timezone.utc),
+        source_account_number=account.user_account_number,
+        target_account_number="N/A"
+    )
+    
+    db.session.add(transaction)
+    db.session.commit()
+
+
+    return jsonify({"msg": "Cash withdrawn successfully"}), 200
+
+
+@api.route('/account/fund-transfer', methods=['POST'])
+@jwt_required()
+def transfer_funds():
+    current_user = get_jwt_identity()
+    data = request.get_json()
+    
+    pin = data.get("pin")
+    amount_str = data.get("amount") 
+    target_account_number = data.get("targetAccountNumber")
+
+    user = User.query.filter_by(account_number=current_user).first()
+    
+    if not user or user.pin != pin:
+        return jsonify({"error": "Incorrect PIN"}), 400
+
+    try:
+        amount = float(amount_str)
+    except ValueError:
+        return jsonify({"error": "Invalid amount format"}), 400
+
+    if amount <= 0:
+        return jsonify({"error": "Invalid amount"}), 400
+
+    source_account = Account.query.filter_by(user_account_number=current_user).first()
+    if not source_account:
+        return jsonify({"error": "Source account not found"}), 404
+
+    if source_account.balance < amount:
+        return jsonify({"error": "Insufficient balance"}), 400
+
+    target_account = Account.query.filter_by(user_account_number=target_account_number).first()
+    if not target_account:
+        return jsonify({"error": "Target account not found"}), 404
+
+    source_account.balance -= amount
+    target_account.balance += amount
+    db.session.commit()
+
+    transaction = Transaction(
+        amount=amount,
+        transaction_type="CASH_TRANSFER",
+        transaction_date=datetime.now(timezone.utc),
+        source_account_number=source_account.user_account_number,
+        target_account_number=target_account.user_account_number
+    )
+    
+    db.session.add(transaction)
+    db.session.commit()
+
+    return jsonify({"msg": "Funds transferred successfully"}), 200
 
 
 
