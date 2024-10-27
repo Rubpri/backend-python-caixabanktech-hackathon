@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, Blueprint
 from flask_migrate import Migrate
 import requests
-from models import OTP, db, User, Account, RevokedToken, Transaction, UserAsset
+from models import OTP, db, User, Account, RevokedToken, Transaction, UserAsset, Subscription
 from config import Config
 from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_required, get_jwt_identity
@@ -652,8 +652,6 @@ def sell_assets():
         account.balance += total_sale_value
         
         user_asset.quantity -= quantity
-        # user_asset.amount = total_sale_value
-        # user_asset.purchase_price = sell_price
         db.session.add(user_asset)
 
         transaction = Transaction(
@@ -742,6 +740,55 @@ def get_price_by_symbol(symbol):
         return jsonify({"error": "Could not retrieve market price for symbol."}), 500
 
 
+@api.route('/user-actions/subscribe', methods=['POST'])
+@jwt_required()
+def create_subscription():
+    current_user = get_jwt_identity()
+    data = request.get_json()
+
+    pin = data.get("pin")
+    amount = data.get("amount")
+    interval_seconds = data.get("intervalSeconds")
+
+    user = User.query.filter_by(account_number=current_user).first()
+    account = Account.query.filter_by(user_account_number=current_user).first()
+
+    if not user or user.pin != pin:
+        return jsonify({"error": "Incorrect PIN"}), 400
+    
+    if account.balance < float(amount):
+        return jsonify({"error": "Insufficient funds to start this subscription"}), 400
+    
+    subscription = Subscription(
+        user_account_number=user.account_number,
+        amount=float(amount),
+        interval_seconds=int(interval_seconds)
+    )
+
+    db.session.add(subscription)
+    db.session.commit()
+
+    return jsonify({"msg": "Subscription created successfully."}), 201
+
+@api.route('/user-actions/enable-auto-invest', methods=['POST'])
+@jwt_required()
+def enable_auto_invest_bot():
+    current_user = get_jwt_identity()
+    data = request.get_json()
+    
+    pin = data.get("pin")
+    
+    user = User.query.filter_by(account_number=current_user).first()
+    
+    if not user or user.pin != pin:
+        return jsonify({"error": "Incorrect PIN"}), 400
+    
+    account = Account.query.filter_by(user_account_number=current_user).first()
+    account.auto_invest_bot_enabled = True
+    
+    db.session.commit()
+    
+    return jsonify({"msg": "Automatic investment enabled successfully."}), 200
 
 
 app.register_blueprint(api, url_prefix='/api')

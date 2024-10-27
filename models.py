@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 import uuid
 import re
@@ -40,9 +40,11 @@ class Account(db.Model):
     id = Column(Integer, primary_key=True, autoincrement=True)
     balance = Column(Float, nullable=False, default=0.0)
     user_account_number = Column(String(36), ForeignKey('user.account_number'))
+    auto_invest_bot_enabled = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="account")
     assets = relationship("UserAsset", back_populates="account")
+    subscriptions = relationship("Subscription", back_populates="account")
 
 
 class RevokedToken(db.Model):
@@ -80,6 +82,7 @@ class Transaction(db.Model):
     
 
 class UserAsset(db.Model):
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_account_number = Column(String(36), ForeignKey('account.user_account_number'), nullable=False)
     asset_symbol = Column(String(10), nullable=False)
@@ -88,3 +91,12 @@ class UserAsset(db.Model):
     quantity = Column(Float, default=0.0)
 
     account = relationship("Account", back_populates="assets")
+
+class Subscription(db.Model):
+    id = Column(Integer, primary_key=True)
+    user_account_number = Column(String(36), ForeignKey('account.user_account_number'), nullable=False)
+    amount = Column(Float, nullable=False)
+    interval_seconds = Column(Integer, nullable=False)
+    next_payment = Column(DateTime, default=datetime.now(timezone.utc))
+
+    account = relationship("Account", back_populates="subscriptions")
